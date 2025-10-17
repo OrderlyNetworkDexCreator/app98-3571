@@ -1,48 +1,65 @@
-import { vitePlugin as remix } from "@remix-run/dev";
-import { defineConfig } from "vite";
+import { defineConfig, Plugin } from "vite";
+import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { cjsInterop } from "vite-plugin-cjs-interop";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import fs from "fs";
+import path from "path";
+
+function loadConfigTitle(): string {
+  try {
+    const configPath = path.join(__dirname, "public/config.js");
+    if (!fs.existsSync(configPath)) {
+      return "Orderly Network";
+    }
+
+    const configText = fs.readFileSync(configPath, "utf-8");
+    const jsonText = configText
+      .replace(/window\.__RUNTIME_CONFIG__\s*=\s*/, "")
+      .replace(/;$/, "")
+      .trim();
+
+    const config = JSON.parse(jsonText);
+    return config.VITE_ORDERLY_BROKER_NAME || "Orderly Network";
+  } catch (error) {
+    console.warn("Failed to load title from config.js:", error);
+    return "Orderly Network";
+  }
+}
+
+function htmlTitlePlugin(): Plugin {
+  const title = loadConfigTitle();
+  console.log(`Using title from config.js: ${title}`);
+
+  return {
+    name: "html-title-transform",
+    transformIndexHtml(html) {
+      return html.replace(/<title>.*?<\/title>/, `<title>${title}</title>`);
+    },
+  };
+}
 
 export default defineConfig(() => {
-  const isProduction = process.env.NODE_ENV === "production";
-  const noExternal = [
-    /^@orderly.*$/,
-    "@uiw/react-split",
-    "@privy-io/react-auth",
-  ];
-  if (isProduction) {
-    noExternal.push("ethers");
-  }
-
-  // Set the base path for assets in production builds (used for GitHub Pages)
   const basePath = process.env.PUBLIC_PATH || "/";
 
   return {
     base: basePath,
-    ssr: {
-      noExternal,
-      external: ["@privy-io/cross-app-connect/rainbow-kit"],
-    },
     plugins: [
-      remix({
-        basename: basePath,
-        ssr: false,
-        future: {
-          v3_fetcherPersist: true,
-          v3_relativeSplatPath: true,
-          v3_throwAbortReason: true,
-          v3_singleFetch: true,
-          v3_lazyRouteDiscovery: true,
-        },
-      }),
+      react(),
       tsconfigPaths(),
+      htmlTitlePlugin(),
       cjsInterop({
         dependencies: ["bs58", "@coral-xyz/anchor", "lodash"],
       }),
       nodePolyfills({
-        include: ["buffer", "crypto"],
+        include: ["buffer", "crypto", "stream"],
       }),
     ],
+    build: {
+      outDir: "build/client",
+    },
+    optimizeDeps: {
+      include: ["react", "react-dom", "react-router-dom"],
+    },
   };
 });
